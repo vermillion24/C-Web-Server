@@ -63,7 +63,7 @@ int send_response(int fd, char *header, char *content_type, void *body, int cont
     // asctime() automatically appends a '\n'.
     date_str[strlen(date_str) - 1] = '\0';
 
-    // 1. Build the HTTP response headers using sprintf
+    // 1. HTTP response headers
     int response_length = sprintf(response,
         "%s\r\n"
         "Date: %s\r\n"
