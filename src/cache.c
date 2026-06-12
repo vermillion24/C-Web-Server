@@ -9,9 +9,30 @@
  */
 struct cache_entry *alloc_entry(char *path, char *content_type, void *content, int content_length)
 {
-    ///////////////////
-    // IMPLEMENT ME! //
-    ///////////////////
+    struct cache_entry *ce = malloc(sizeof(struct cache_entry));
+
+    if (ce == NULL) {
+        fprintf(stderr, "alloc_entry: malloc failed\n");
+        return NULL;
+    }
+
+    ce->path         = strdup(path);
+    ce->content_type = strdup(content_type);
+
+    ce->content = malloc(content_length);
+    if (ce->content == NULL) {
+        fprintf(stderr, "alloc_entry: malloc for content failed\n");
+        free(ce->path);
+        free(ce->content_type);
+        free(ce);
+        return NULL;
+    }
+    memcpy(ce->content, content, content_length);
+    ce->content_length = content_length;
+
+    ce->prev = ce->next = NULL;
+
+    return ce;
 }
 
 /**
@@ -19,9 +40,10 @@ struct cache_entry *alloc_entry(char *path, char *content_type, void *content, i
  */
 void free_entry(struct cache_entry *entry)
 {
-    ///////////////////
-    // IMPLEMENT ME! //
-    ///////////////////
+    free(entry->path);
+    free(entry->content_type);
+    free(entry->content);
+    free(entry);
 }
 
 /**
@@ -68,7 +90,7 @@ void dllist_move_to_head(struct cache *cache, struct cache_entry *ce)
 
 /**
  * Removes the tail from the list and returns it
- * 
+ *
  * NOTE: does not deallocate the tail
  */
 struct cache_entry *dllist_remove_tail(struct cache *cache)
@@ -85,15 +107,34 @@ struct cache_entry *dllist_remove_tail(struct cache *cache)
 
 /**
  * Create a new cache
- * 
+ *
  * max_size: maximum number of entries in the cache
  * hashsize: hashtable size (0 for default)
  */
 struct cache *cache_create(int max_size, int hashsize)
 {
-    ///////////////////
-    // IMPLEMENT ME! //
-    ///////////////////
+    struct cache *cache = malloc(sizeof(struct cache));
+
+    if (cache == NULL) {
+        fprintf(stderr, "cache_create: malloc failed\n");
+        return NULL;
+    }
+
+    cache->max_size = max_size;
+    cache->cur_size = 0;
+    cache->head     = NULL;
+    cache->tail     = NULL;
+
+    // Pass 0 or hashsize; NULL means use default hash function
+    cache->index = hashtable_create(hashsize == 0 ? MAX_CACHE_ENTRIES * 2 : hashsize, NULL);
+
+    if (cache->index == NULL) {
+        fprintf(stderr, "cache_create: hashtable_create failed\n");
+        free(cache);
+        return NULL;
+    }
+
+    return cache;
 }
 
 void cache_free(struct cache *cache)
@@ -117,14 +158,28 @@ void cache_free(struct cache *cache)
  * Store an entry in the cache
  *
  * This will also remove the least-recently-used items as necessary.
- * 
+ *
  * NOTE: doesn't check for duplicate cache entries
  */
 void cache_put(struct cache *cache, char *path, char *content_type, void *content, int content_length)
 {
-    ///////////////////
-    // IMPLEMENT ME! //
-    ///////////////////
+    // 1. Allocate the new entry
+    struct cache_entry *ce = alloc_entry(path, content_type, content, content_length);
+    if (ce == NULL) return;
+
+    // 2. Evict LRU tail entries until there is room for the new one
+    while (cache->cur_size >= cache->max_size) {
+        struct cache_entry *evicted = dllist_remove_tail(cache);  // decrements cur_size
+        hashtable_delete(cache->index, evicted->path);
+        free_entry(evicted);
+    }
+
+    // 3. Insert new entry at head of the DLL (most-recently used)
+    dllist_insert_head(cache, ce);
+    cache->cur_size++;
+
+    // 4. Add to the hashtable for O(1) future lookups
+    hashtable_put(cache->index, ce->path, ce);
 }
 
 /**
@@ -132,7 +187,15 @@ void cache_put(struct cache *cache, char *path, char *content_type, void *conten
  */
 struct cache_entry *cache_get(struct cache *cache, char *path)
 {
-    ///////////////////
-    // IMPLEMENT ME! //
-    ///////////////////
+    // Look up by path in the hashtable
+    struct cache_entry *ce = hashtable_get(cache->index, path);
+
+    if (ce == NULL) {
+        return NULL;   // cache miss
+    }
+
+    // Cache hit — promote to head so it is the most-recently used
+    dllist_move_to_head(cache, ce);
+
+    return ce;
 }
